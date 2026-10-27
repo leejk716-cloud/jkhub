@@ -32,14 +32,21 @@ SIZES = {
         W=4.75,     # 볼트 원 직경 (PCD)
         hole=0.75,  # 볼트 구멍 직경
         n=4,        # 볼트 수 (5/8" UNC)
+        r_hub=0.31,  # 허브-플랜지 뒷면 필릿 반경 (B16.5 r)
     ),
 }
 
+# 용접단 베벨 (ASME B16.25, 벽두께 22 mm 이하): 37.5°, 루트면 1.6 mm
+BEVEL_DEG = 37.5
+ROOT_FACE = 1.6
+
 
 def profile_mm(d):
-    """단면 꼭짓점 [(r, z)] mm, RF 면 z=0 기준."""
+    """단면 꼭짓점 [(r, z)] mm, RF 면 z=0 기준. 용접단 베벨 포함."""
     r = lambda v: v * IN / 2  # 직경(inch) → 반경(mm)
     z = lambda v: v * IN
+    land = r(d["B"]) + ROOT_FACE
+    bevel_dz = (r(d["A"]) - land) * math.tan(math.radians(BEVEL_DEG))
     return [
         (r(d["B"]), 0.0),
         (r(d["R"]), 0.0),
@@ -47,13 +54,23 @@ def profile_mm(d):
         (r(d["O"]), z(d["rf"])),
         (r(d["O"]), z(d["tf"])),
         (r(d["X"]), z(d["tf"])),
-        (r(d["A"]), z(d["Y"])),
+        (r(d["A"]), z(d["Y"]) - bevel_dz),  # 허브 테이퍼 끝 = 베벨 시작
+        (land, z(d["Y"])),                   # 베벨 끝 = 루트면 외측
         (r(d["B"]), z(d["Y"])),
     ]
 
 
+def fillet_volume(d, pts):
+    """허브-플랜지 뒷면 오목 모서리(꼭짓점 X) 필릿이 더하는 체적 (근사: 도심을 꼭짓점 근처로)."""
+    rf = d["r_hub"] * IN
+    (x0, y0), (x1, y1) = pts[5], pts[6]
+    theta = math.pi / 2 + math.atan2(x0 - x1, y1 - y0)  # 뒷면(반경방향)과 허브면 사이 내각
+    area = rf ** 2 * (1 / math.tan(theta / 2) - (math.pi - theta) / 2)
+    return 2 * math.pi * (x0 + 0.25 * rf) * area
+
+
 def expected_volume(d, pts):
-    """파푸스 정리(단면적 × 도심 회전 경로)로 회전체 체적, 볼트 구멍 차감."""
+    """파푸스 정리(단면적 × 도심 회전 경로)로 회전체 체적, 볼트 구멍 차감, 필릿 가산."""
     a = cx = 0.0
     for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1]):
         c = x0 * y1 - x1 * y0
@@ -63,7 +80,7 @@ def expected_volume(d, pts):
     cx /= 6 * a
     rev = 2 * math.pi * cx * abs(a)
     holes = d["n"] * math.pi * (d["hole"] * IN / 2) ** 2 * (d["tf"] - d["rf"]) * IN
-    return rev - holes
+    return rev - holes + fillet_volume(d, pts)
 
 
 def main():
@@ -92,9 +109,10 @@ def main():
         ]}))
         print("revolve:", "ok" if b.get("ok") else json.dumps(b, ensure_ascii=False)[:800])
 
-        # 회전 결과의 Z 범위를 보고 볼트 구멍 컷 범위를 잡는다 (스케치 축 방향 확인용)
-        m = text_json(c.call("measure"))
-        print("bbox:", json.dumps(m["bodies"][0].get("bbox") if m.get("bodies") else m, ensure_ascii=False)[:300])
+        # 허브-플랜지 뒷면 필릿: XZ 스케치의 +y 가 월드 -Z 로 회전되므로 뒷면은 Z = -tf
+        hub_edge = [d["X"] * IN / 2, 0.0, -d["tf"] * IN]
+        c.call("execute", {"command": "solid.fillet",
+                           "params": {"edges": [hub_edge], "radius": d["r_hub"] * IN, "name": "hub_fillet"}})
 
         # 패턴에 원의 curve id가 필요하므로 단계별 실행
         hx, hy = pcd_r * math.cos(first), pcd_r * math.sin(first)
