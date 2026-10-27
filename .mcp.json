@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "solidcraft": {
+      "command": "solidcraft-cli",
+      "args": ["mcp", "--allow-path", "./solidcraft-mcp/out"]
+    }
+  }
+}
