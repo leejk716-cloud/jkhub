@@ -41,3 +41,23 @@ python3 solidcraft-mcp/tests/smoke_test.py --no-screenshot
 
 검증 항목: `initialize` → `tools/list` → `batch`(40×30×20 박스 − Ø10 관통홀)
 → `measure` 체적 vs 이론값 22,429.2 mm³ (허용 0.5%) → STEP export → iso 스크린샷.
+
+## 예제: ASME B16.5 WNRF 플랜지
+
+| 스크립트 | 결과 |
+|---|---|
+| `examples/flange_wnrf.py` | 단품 플랜지 (B16.25 용접 베벨, B16.5 허브 필릿, 볼트 구멍) |
+| `examples/flange_assembly.py` | 플랜지 2 + B16.20 스파이럴 운드 가스켓 + 스터드 4 + 헤비 헥스 너트 8 |
+
+### 설계 파라미터 (SolidCraft 앱 Parameters 표에서 수정 → 형상 자동 재계산)
+
+| 파라미터 | 기본값 | 내용 |
+|---|---|---|
+| `bevel_angle` | 37.5 deg | 용접 베벨 각도 (ASME B16.25) |
+| `root_face` | 1.6 mm | 베벨 루트면 |
+| `bore_dia` | 52.50 mm | 보어 직경 (Sch 40) |
+| `weld_end_od` | 60.33 mm | 용접단 외경 (배관 OD) |
+| `hub_length` | 63.50 mm | 허브 포함 전장 Y |
+
+조립체에서는 두 플랜지가 같은 파라미터를 참조하므로 한 번 수정하면 양쪽 모두 반영된다.
+MCP로 바꿀 때: `set_parameter {name: "bevel_angle", value: "30 deg"}`.

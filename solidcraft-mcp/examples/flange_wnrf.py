@@ -41,12 +41,37 @@ BEVEL_DEG = 37.5
 ROOT_FACE = 1.6
 
 
-def profile_mm(d):
-    """단면 꼭짓점 [(r, z)] mm, RF 면 z=0 기준. 용접단 베벨 포함."""
+def define_parameters(c, d, bevel_deg=BEVEL_DEG, root_face=ROOT_FACE):
+    """베벨을 설계 파라미터로 등록한다. SolidCraft 앱의 Parameters 표에서 바꾸면 형상이 따라간다."""
+    params = [
+        ("bevel_angle", f"{bevel_deg} deg", "용접 베벨 각도 (ASME B16.25: 37.5°)"),
+        ("root_face", f"{root_face} mm", "베벨 루트면 (ASME B16.25: 1.6 mm)"),
+        ("bore_dia", f"{d['B'] * IN:.4f} mm", "보어 직경"),
+        ("weld_end_od", f"{d['A'] * IN:.4f} mm", "용접단 외경 (배관 OD)"),
+        ("hub_length", f"{d['Y'] * IN:.4f} mm", "허브 포함 전장 Y"),
+    ]
+    c.call("batch", {"coalesce_parameters": True, "commands": [
+        {"command": "set_parameter", "params": {"name": n, "value": v, "comment": cm}} for n, v, cm in params]})
+
+
+def profile_sketch(d, z_map=lambda z: z):
+    """스케치용 단면 꼭짓점. 베벨 두 점은 파라미터 식이라 파라미터 변경 시 재계산된다.
+    z_map: 단면 z(문자열 식 또는 숫자) → 스케치 y 식 변환 (플랜지 B 의 반전·이동용)."""
+    pts = profile_mm(d)
+    tip_z = "hub_length - (weld_end_od / 2 - bore_dia / 2 - root_face) * tan(bevel_angle)"
+    out = [(r, z_map(z)) for r, z in pts]
+    out[6] = ("weld_end_od / 2", z_map(tip_z))
+    out[7] = ("bore_dia / 2 + root_face", z_map("hub_length"))
+    out[8] = ("bore_dia / 2", z_map("hub_length"))
+    return [list(p) for p in out]
+
+
+def profile_mm(d, bevel_deg=BEVEL_DEG, root_face=ROOT_FACE):
+    """단면 꼭짓점 [(r, z)] mm, RF 면 z=0 기준. 용접단 베벨 포함 (체적 검산용 수치)."""
     r = lambda v: v * IN / 2  # 직경(inch) → 반경(mm)
     z = lambda v: v * IN
-    land = r(d["B"]) + ROOT_FACE
-    bevel_dz = (r(d["A"]) - land) * math.tan(math.radians(BEVEL_DEG))
+    land = r(d["B"]) + root_face
+    bevel_dz = (r(d["A"]) - land) * math.tan(math.radians(bevel_deg))
     return [
         (r(d["B"]), 0.0),
         (r(d["R"]), 0.0),
@@ -100,10 +125,11 @@ def main():
                                  "clientInfo": {"name": "flange", "version": "1"}})
         c.notify("notifications/initialized")
         c.call("new_design", {"name": f"WNRF-{args.size}"})
+        define_parameters(c, d)
 
         b = text_json(c.call("batch", {"commands": [
             {"command": "sketch.create", "params": {"plane": "XZ", "name": "profile"}},
-            {"command": "sketch.line", "params": {"points": [list(p) for p in pts], "closed": True}},
+            {"command": "sketch.line", "params": {"points": profile_sketch(d), "closed": True}},
             {"command": "sketch.finish"},
             {"command": "solid.revolve", "params": {"axis": "y", "name": "flange", "body_name": "flange"}},
         ]}))
@@ -133,6 +159,17 @@ def main():
         print(f"volume: {vol:.1f} mm³ / 해석해 {exp:.1f} mm³ (오차 {abs(vol - exp) / exp * 100:.3f}%)")
         print("mass:", m["total"].get("mass_g") or m["total"].get("mass"))
         print("bbox:", json.dumps(m["bodies"][0].get("bbox"), ensure_ascii=False))
+
+        # 파라미터 추종 검증: 베벨 45° / 루트면 1.0 mm 로 바꿔 재계산 → 해석해 비교 → 원복
+        c.call("batch", {"coalesce_parameters": True, "commands": [
+            {"command": "set_parameter", "params": {"name": "bevel_angle", "value": "45 deg"}},
+            {"command": "set_parameter", "params": {"name": "root_face", "value": "1.0 mm"}}]})
+        v2 = text_json(c.call("measure"))["total"]["volume_mm3"]
+        e2 = expected_volume(d, profile_mm(d, 45, 1.0))
+        print(f"param check (45°, 1.0 mm): {v2:.1f} / 해석해 {e2:.1f} mm³ (오차 {abs(v2 - e2) / e2 * 100:.3f}%)")
+        c.call("batch", {"coalesce_parameters": True, "commands": [
+            {"command": "set_parameter", "params": {"name": "bevel_angle", "value": f"{BEVEL_DEG} deg"}},
+            {"command": "set_parameter", "params": {"name": "root_face", "value": f"{ROOT_FACE} mm"}}]})
 
         base = os.path.join(OUT, f"flange_wnrf_{args.size}")
         c.call("save", {"path": base + ".solidcraft"})

@@ -14,7 +14,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "tests"))
-from flange_wnrf import IN, OUT, SIZES, profile_mm  # noqa: E402
+from flange_wnrf import IN, OUT, SIZES, define_parameters, profile_sketch  # noqa: E402
 from smoke_test import McpClient, text_json  # noqa: E402
 
 # ASME B16.20 스파이럴 운드 가스켓 (inch, 직경) / B16.5 볼팅 / ASME B18.2.2 헤비 헥스 너트
@@ -83,9 +83,11 @@ def main():
         c.call("new_design", {"name": f"WNRF-ASSY-{args.size}"})
 
         # 1) 플랜지 A (허브 -Z), 플랜지 B (RF 면 Z=g, 허브 +Z) + 허브 필릿
-        pts = profile_mm(d)
-        revolve_body(c, pts, "flange_A")
-        revolve_body(c, [(r, -(g + z)) for r, z in pts], "flange_B")
+        #    두 플랜지가 같은 베벨 파라미터(bevel_angle, root_face)를 참조한다
+        define_parameters(c, d)
+        revolve_body(c, profile_sketch(d), "flange_A")
+        revolve_body(c, profile_sketch(d, lambda z: f"-({g:.4f} + {z})" if isinstance(z, str) else -(g + z)),
+                     "flange_B")
         ex("solid.fillet", edges=[[d["X"] * IN / 2, 0, -tf]], radius=d["r_hub"] * IN, body="flange_A")
         ex("solid.fillet", edges=[[d["X"] * IN / 2, 0, g + tf]], radius=d["r_hub"] * IN, body="flange_B")
 
