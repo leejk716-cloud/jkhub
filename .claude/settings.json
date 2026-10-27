@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash solidcraft-mcp/scripts/install_linux.sh*)",
+      "Bash(python3 solidcraft-mcp/tests/smoke_test.py*)",
+      "Bash(solidcraft-cli *)"
+    ]
+  }
+}
